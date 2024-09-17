@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cassert>
 #include <cstddef>
 #include <future>  // NOLINT
 #include <map>
@@ -41,6 +42,7 @@ class MoveBlocked {
 };
 
 // A TrieNode is a node in a Trie.
+// 本身是一个基类
 class TrieNode {
  public:
   // Create a TrieNode with no children.
@@ -58,6 +60,7 @@ class TrieNode {
   // contains a value or not.
   //
   // Note: if you want to convert `unique_ptr` into `shared_ptr`, you can use `std::shared_ptr<T>(std::move(ptr))`.
+  // 一个和这个结点一样的unique 指针 相同的 map
   virtual auto Clone() const -> std::unique_ptr<TrieNode> { return std::make_unique<TrieNode>(children_); }
 
   // A map of children, where the key is the next character in the key, and the value is the next TrieNode.
@@ -66,6 +69,7 @@ class TrieNode {
   std::map<char, std::shared_ptr<const TrieNode>> children_;
 
   // Indicates if the node is the terminal node.
+  // 表明这个结点有没有值
   bool is_value_node_{false};
 
   // You can add additional fields and methods here except storing children. But in general, you don't need to add extra
@@ -77,9 +81,11 @@ template <class T>
 class TrieNodeWithValue : public TrieNode {
  public:
   // Create a trie node with no children and a value.
+  // 构造函数要假如值
   explicit TrieNodeWithValue(std::shared_ptr<T> value) : value_(std::move(value)) { this->is_value_node_ = true; }
 
   // Create a trie node with children and a value.
+  // 有map  and 本身的value
   TrieNodeWithValue(std::map<char, std::shared_ptr<const TrieNode>> children, std::shared_ptr<T> value)
       : TrieNode(std::move(children)), value_(std::move(value)) {
     this->is_value_node_ = true;
@@ -107,6 +113,7 @@ class Trie {
   std::shared_ptr<const TrieNode> root_{nullptr};
 
   // Create a new trie with the given root.
+  // 仅仅是对值传递的拷贝 就是 指向这个const node 的东西多了一个
   explicit Trie(std::shared_ptr<const TrieNode> root) : root_(std::move(root)) {}
 
  public:
@@ -131,6 +138,32 @@ class Trie {
 
   // Get the root of the trie, should only be used in test cases.
   auto GetRoot() const -> std::shared_ptr<const TrieNode> { return root_; }
+
+ private:
+  template <class T>
+   std::shared_ptr<T> _Get(const std::shared_ptr<const TrieNode> &node, std::string_view key, size_t at)const {
+    if (at == key.size()) {
+      if (node->is_value_node_ == false) return nullptr;  // 不是有值的结点
+      auto result = std::static_pointer_cast<const TrieNodeWithValue<T>>(node);
+      return (result == nullptr) ? nullptr : result->value_;
+    }
+
+    assert(at < key.size());
+
+    char elem = key[at];
+
+    auto it = node->children_.find(elem);
+
+    // 没找到 对应的下一个结点
+    if (it == node->children_.end()) {
+      return nullptr;
+    }
+    return _Get<T>(it->second, key, at + 1);
+  }
 };
+
+
+
+
 
 }  // namespace bustub
