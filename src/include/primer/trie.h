@@ -140,6 +140,8 @@ class Trie {
   auto GetRoot() const -> std::shared_ptr<const TrieNode> { return root_; }
 
  private:
+
+ // 保证了 node 一定有值 并且 key.size() > 0
   template <class T>
    std::shared_ptr<T> _Get(const std::shared_ptr<const TrieNode> &node, std::string_view key, size_t at)const {
     if (at == key.size()) {
@@ -147,8 +149,6 @@ class Trie {
       auto result = std::static_pointer_cast<const TrieNodeWithValue<T>>(node);
       return (result == nullptr) ? nullptr : result->value_;
     }
-
-    assert(at < key.size());
 
     char elem = key[at];
 
