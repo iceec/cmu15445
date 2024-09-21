@@ -119,7 +119,8 @@ class Trie {
  public:
   // Create an empty trie.
   Trie() = default;
-
+  // 拷贝赋值是默认的
+  Trie(const Trie &) = default;
   // Get the value associated with the given key.
   // 1. If the key is not in the trie, return nullptr.
   // 2. If the key is in the trie but the type is mismatched, return nullptr.
@@ -140,13 +141,12 @@ class Trie {
   auto GetRoot() const -> std::shared_ptr<const TrieNode> { return root_; }
 
  private:
-
- // 保证了 node 一定有值 并且 key.size() > 0
+  // 保证了 node 一定有值 并且 key.size() > 0
   template <class T>
-   std::shared_ptr<T> _Get(const std::shared_ptr<const TrieNode> &node, std::string_view key, size_t at)const {
+  std::shared_ptr<T> _Get(const std::shared_ptr<const TrieNode> &node, std::string_view key, size_t at) const {
     if (at == key.size()) {
       if (node->is_value_node_ == false) return nullptr;  // 不是有值的结点
-      auto result = std::static_pointer_cast<const TrieNodeWithValue<T>>(node);
+      auto result = std::dynamic_pointer_cast<const TrieNodeWithValue<T>>(node);
       return (result == nullptr) ? nullptr : result->value_;
     }
 
@@ -161,9 +161,5 @@ class Trie {
     return _Get<T>(it->second, key, at + 1);
   }
 };
-
-
-
-
 
 }  // namespace bustub

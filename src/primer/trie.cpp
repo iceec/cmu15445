@@ -1,4 +1,5 @@
 #include "primer/trie.h"
+#include <iostream>
 #include <optional>
 #include <stack>
 #include <string_view>
@@ -52,11 +53,11 @@ auto Trie::Get(std::string_view key) const -> const T * {
   //  返回一个shared_ptr  看看有没有最后一个treenode
 
   if (root_ == nullptr) return nullptr;
-  
+
   if (key.size() == 0) {
     if (root_->is_value_node_ == false) return nullptr;
 
-    auto result = std::static_pointer_cast<const TrieNodeWithValue<T>>(root_);
+    auto result = std::dynamic_pointer_cast<const TrieNodeWithValue<T>>(root_);
     return (result == nullptr) ? nullptr : result->value_.get();
   }
 
@@ -72,7 +73,6 @@ template <class T>
 auto Trie::Put(std::string_view key, T value) const -> Trie {
   // Note that `T` might be a non-copyable type. Always use `std::move` when creating `shared_ptr` on that value.
   // throw NotImplementedException("Trie::Put is not implemented.");
-
   // You should walk through the trie and create new nodes if necessary. If the node corresponding to the key already
   // exists, you should create a new `TrieNodeWithValue`.
   // == 0 存放在root 里面

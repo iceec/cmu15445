@@ -20,6 +20,7 @@ TEST(TrieDebugger, TestCase) {
   zipfian_int_distribution<uint32_t> dis(0, 1000);
 
   auto trie = Trie();
+
   for (uint32_t i = 0; i < 100; i++) {
     std::string key = fmt::format("{}", dis(gen));
     auto value = dis(gen);
