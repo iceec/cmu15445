@@ -15,10 +15,10 @@
 #include <chrono>
 #include <limits>
 #include <list>
+#include <map>
 #include <memory>
 #include <mutex>  // NOLINT
 #include <optional>
-#include <set>
 #include <unordered_map>
 #include <vector>
 
@@ -39,6 +39,26 @@ struct LRUKNode {
   bool is_evictable_{false};
   LRUKNode() = default;
   LRUKNode(frame_id_t fid, size_t k) : fid_(fid), k_(k) {}
+};
+
+struct LRUKNode_Info {
+  bool is_evictable_{false};
+  bool is_have_k_size{false};
+  size_t least_access_time_{};
+
+  // 返回true 表明 自己应该被淘汰
+  bool operator<(const LRUKNode_Info &other) const {
+    // evictable 本身不可以被驱逐
+    if (is_evictable_ == false) return false;
+    // 别人不可以驱除  返回真
+    if (other.is_evictable_ == false) return true;
+    // 自己满足了Ksize  但是 对方没满足
+    if (is_have_k_size && other.is_have_k_size == false) return false;
+    // 对方满足了Ksize 但是自己没满足
+    if (is_have_k_size == false && other.is_have_k_size) return true;
+    // 二者状态相同 谁的 访问时间小 那么淘汰谁
+    return least_access_time_ < other.least_access_time_;
+  }
 };
 
 /**
@@ -153,10 +173,12 @@ class LRUKReplacer {
   auto Size() -> size_t;
 
  private:
+  void change_info_and_tree(frame_id_t, bool, bool, size_t);
   // TODO(student): implement me! You can replace these member variables as you like.
   // Remove maybe_unused if you start using them.
   [[maybe_unused]] std::unordered_map<frame_id_t, LRUKNode> node_store_;
-
+  std::unordered_map<frame_id_t, LRUKNode_Info> node_info_;
+  std::map<LRUKNode_Info, frame_id_t> node_tree_;  // 保护条目信息的
   [[maybe_unused]] size_t current_timestamp_{0};
   [[maybe_unused]] size_t curr_size_{0};
   [[maybe_unused]] size_t replacer_size_;

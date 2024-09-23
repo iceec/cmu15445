@@ -116,8 +116,8 @@ class BufferPoolManager {
   auto Size() const -> size_t;
   auto NewPage() -> page_id_t;
   auto DeletePage(page_id_t page_id) -> bool;
-  auto CheckedWritePage(page_id_t page_id, AccessType access_type = AccessType::Unknown)
-      -> std::optional<WritePageGuard>;
+  auto CheckedWritePage(page_id_t page_id,
+                        AccessType access_type = AccessType::Unknown) -> std::optional<WritePageGuard>;
   auto CheckedReadPage(page_id_t page_id, AccessType access_type = AccessType::Unknown) -> std::optional<ReadPageGuard>;
   auto WritePage(page_id_t page_id, AccessType access_type = AccessType::Unknown) -> WritePageGuard;
   auto ReadPage(page_id_t page_id, AccessType access_type = AccessType::Unknown) -> ReadPageGuard;
@@ -126,6 +126,12 @@ class BufferPoolManager {
   auto GetPinCount(page_id_t page_id) -> std::optional<size_t>;
 
  private:
+  template <typename T>  // 在一个大锁里面去执行的 不用考虑并发性
+  auto handle_in_free_frame(page_id_t page_id, AccessType access_type) -> std::optional<T>;
+
+  template <typename T>
+  auto Checked(page_id_t page_id, AccessType access_type) -> std::optional<T>;
+
   /** @brief The number of frames in the buffer pool. */
   const size_t num_frames_;
 

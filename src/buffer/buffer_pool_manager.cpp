@@ -122,7 +122,13 @@ auto BufferPoolManager::Size() const -> size_t { return num_frames_; }
  *
  * @return The page ID of the newly allocated page.
  */
-auto BufferPoolManager::NewPage() -> page_id_t { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+auto BufferPoolManager::NewPage() -> page_id_t {
+  // UNIMPLEMENTED("TODO(P1): Add implementation.");
+
+  auto id = next_page_id_.fetch_add(1, std::memory_order_relaxed);  // +1  然后返回之前的值
+  disk_scheduler_->IncreaseDiskSpace(next_page_id_);                // 这个地方不用加锁 里面已经加了
+  return id;
+}
 
 /**
  * @brief Removes a page from the database, both on disk and in memory.
@@ -151,6 +157,65 @@ auto BufferPoolManager::NewPage() -> page_id_t { UNIMPLEMENTED("TODO(P1): Add im
  * @return `false` if the page exists but could not be deleted, `true` if the page didn't exist or deletion succeeded.
  */
 auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+
+template <typename T>  // 在一个大锁里面去执行的 不用考虑并发性
+auto BufferPoolManager::handle_in_free_frame(page_id_t page_id, AccessType access_type) -> std::optional<T> {
+  auto frame_id = free_frames_.back();
+  free_frames_.pop_back();
+  // 读取对应的pageid 那么这个时候就要阻塞等待他读完才可以
+  auto promise = disk_scheduler_->CreatePromise();
+  auto future = promise.get_future();  // 拿到future
+  // 添加到任务当中去
+  disk_scheduler_->Schedule({false, frames_.at(frame_id)->data_.data(), page_id, std::move(promise)});
+  future.get();  // 阻塞等待到调度执行完成
+  // 现在frame当中已经加载好了相应的磁盘数据
+  replacer_->RecordAccess(page_id, access_type);  // 因为不存在这个记录 所有要加入进去
+  page_table_[page_id] = frame_id;  // 对应也需要加入 这个不需要锁的 因为肯定是不一样的
+  frames_[frame_id]->pin_count_++;
+  return T(page_id, frames_.at(frame_id), replacer_, bpm_latch_);
+}
+
+template <typename T>
+auto BufferPoolManager::Checked(page_id_t page_id, AccessType access_type) -> std::optional<T> {
+  // UNIMPLEMENTED("TODO(P1): Add implementation.");
+  // 首先得考虑pageid 不能太大
+  // bpm latch给出去 但是不怎么用的
+  // 第一种情况 考虑pageid 已经在内存当中的
+  std::lock_guard<std::mutex> lock(*bpm_latch_);  // 直接获取大锁 就行
+  if (page_table_.count(page_id)) {
+    auto frame_id = page_table_[page_id];
+    frames_.at(frame_id)->pin_count_++;
+    return T(page_id, frames_.at(frame_id), replacer_, bpm_latch_);  // 直接返回这个对应的内存页面就行了
+  }
+  // 现在确定了 pageid 不在内存当中了
+  if (free_frames_.size()) {
+    // 那么现在的情况是 freeframe还是存在的
+    return handle_in_free_frame<T>(page_id, access_type);
+  }
+  // above all 是不是都要考虑给 相应的frame的计数要进行 增加呢
+  // page id 不在内存中的同时 也没有多余的内存给我用了
+  auto info = replacer_->Evict();
+
+  if (!info.has_value()) return std::nullopt;  // 现在所有的都是不可以被驱逐的 那么就返回把
+
+  // 现在能释放这个frame id 要看看是不是要写回磁盘啊
+  frame_id_t free_frame_id = info.value();
+  page_id_t free_page_id = page_table_[free_frame_id];
+  // 需要进行磁盘写回
+  if (frames_.at(free_frame_id)->is_dirty_) {
+    auto promise = disk_scheduler_->CreatePromise();
+    auto future = promise.get_future();  // 拿到future
+    // 添加到任务当中去
+    disk_scheduler_->Schedule({true, frames_.at(free_frame_id)->data_.data(), page_id, std::move(promise)});
+    future.get();
+    // 写回磁盘完成了
+  }
+  page_table_.erase(free_page_id);        // 释放id
+  frames_.at(free_frame_id)->Reset();     // 重新刷一边
+  free_frames_.push_back(free_frame_id);  // 填入里面
+
+  return handle_in_free_frame<T>(page_id, access_type);
+}
 
 /**
  * @brief Acquires an optional write-locked guard over a page of data. The user can specify an `AccessType` if needed.
@@ -192,7 +257,11 @@ auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool { UNIMPLEMENTED("T
  * returns `std::nullopt`, otherwise returns a `WritePageGuard` ensuring exclusive and mutable access to a page's data.
  */
 auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_type) -> std::optional<WritePageGuard> {
-  UNIMPLEMENTED("TODO(P1): Add implementation.");
+  // UNIMPLEMENTED("TODO(P1): Add implementation.");
+  auto result = Checked<WritePageGuard>(page_id, access_type);
+
+  if (result.has_value()) result.value().frame_->is_dirty_ = true;  // 在这里把 dirty设置了
+  return result;
 }
 
 /**
@@ -219,8 +288,9 @@ auto BufferPoolManager::CheckedWritePage(page_id_t page_id, AccessType access_ty
  * @return std::optional<ReadPageGuard> An optional latch guard where if there are no more free frames (out of memory)
  * returns `std::nullopt`, otherwise returns a `ReadPageGuard` ensuring shared and read-only access to a page's data.
  */
+
 auto BufferPoolManager::CheckedReadPage(page_id_t page_id, AccessType access_type) -> std::optional<ReadPageGuard> {
-  UNIMPLEMENTED("TODO(P1): Add implementation.");
+  return Checked<ReadPageGuard>(page_id, access_type);
 }
 
 /**
@@ -330,5 +400,15 @@ void BufferPoolManager::FlushAllPages() { UNIMPLEMENTED("TODO(P1): Add implement
 auto BufferPoolManager::GetPinCount(page_id_t page_id) -> std::optional<size_t> {
   UNIMPLEMENTED("TODO(P1): Add implementation.");
 }
+
+template auto BufferPoolManager::handle_in_free_frame(page_id_t page_id,
+                                                      AccessType access_type) -> std::optional<WritePageGuard>;
+
+template auto BufferPoolManager::handle_in_free_frame(page_id_t page_id,
+                                                      AccessType access_type) -> std::optional<ReadPageGuard>;
+
+template auto BufferPoolManager::Checked(page_id_t page_id, AccessType access_type) -> std::optional<WritePageGuard>;
+
+template auto BufferPoolManager::Checked(page_id_t page_id, AccessType access_type) -> std::optional<ReadPageGuard>;
 
 }  // namespace bustub
