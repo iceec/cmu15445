@@ -95,6 +95,8 @@ class FrameHeader {
    * currently storing. This might allow you to skip searching for the corresponding (page ID, frame ID) pair somewhere
    * else in the buffer pool manager...
    */
+
+  std::optional<page_id_t> page_id_;
 };
 
 /**
@@ -131,6 +133,9 @@ class BufferPoolManager {
 
   template <typename T>
   auto Checked(page_id_t page_id, AccessType access_type) -> std::optional<T>;
+
+
+  void handle_dirty_frame(frame_id_t,page_id_t);
 
   /** @brief The number of frames in the buffer pool. */
   const size_t num_frames_;

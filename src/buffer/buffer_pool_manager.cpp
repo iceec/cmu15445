@@ -43,6 +43,7 @@ auto FrameHeader::GetDataMut() -> char * { return data_.data(); }
 void FrameHeader::Reset() {
   std::fill(data_.begin(), data_.end(), 0);
   pin_count_.store(0);
+  page_id_ = std::nullopt;
   is_dirty_ = false;
 }
 
@@ -130,6 +131,14 @@ auto BufferPoolManager::NewPage() -> page_id_t {
   return id;
 }
 
+void BufferPoolManager::handle_dirty_frame(frame_id_t frame_id, page_id_t page_id) {
+  auto promise = disk_scheduler_->CreatePromise();
+  auto future = promise.get_future();  // 拿到future
+  disk_scheduler_->Schedule({true, frames_.at(frame_id)->data_.data(), page_id, std::move(promise)});
+  future.get();
+  // OK了 已经写回了
+}
+
 /**
  * @brief Removes a page from the database, both on disk and in memory.
  *
@@ -156,7 +165,29 @@ auto BufferPoolManager::NewPage() -> page_id_t {
  * @param page_id The page ID of the page we want to delete.
  * @return `false` if the page exists but could not be deleted, `true` if the page didn't exist or deletion succeeded.
  */
-auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+auto BufferPoolManager::DeletePage(page_id_t page_id) -> bool {
+  // UNIMPLEMENTED("TODO(P1): Add implementation.");
+  std::lock_guard<std::mutex> lock(*bpm_latch_);  // 大锁保证并行
+  // 先看看有没有这个缓存
+  auto it = page_table_.find(page_id);
+  if (it == page_table_.end()) return false;
+
+  // 在缓存当中看看对应的frame的引用计数是不是应该受到影响 这里看看是不是要minus 1
+  frame_id_t frame_id = it->second;
+  auto frame = frames_.at(frame_id);
+  if (frame->pin_count_ > 0) return false;
+
+  // 判断是不是你需要将页面进行写回了
+  if (frame->is_dirty_) handle_dirty_frame(frame_id, page_id);
+  // 页面已经写回完成了
+  frame->Reset();                    // 清空
+  free_frames_.push_back(frame_id);  // id放回可用列表
+  page_table_.erase(page_id);        // pagetable进行减小
+
+  replacer_->SetEvictable(frame_id, true);  // 先设置成可以被驱逐
+  replacer_->Remove(frame_id);              // 替换策略中要把这个表拿走了
+  return true;
+}
 
 template <typename T>  // 在一个大锁里面去执行的 不用考虑并发性
 auto BufferPoolManager::handle_in_free_frame(page_id_t page_id, AccessType access_type) -> std::optional<T> {
@@ -169,9 +200,12 @@ auto BufferPoolManager::handle_in_free_frame(page_id_t page_id, AccessType acces
   disk_scheduler_->Schedule({false, frames_.at(frame_id)->data_.data(), page_id, std::move(promise)});
   future.get();  // 阻塞等待到调度执行完成
   // 现在frame当中已经加载好了相应的磁盘数据
-  replacer_->RecordAccess(page_id, access_type);  // 因为不存在这个记录 所有要加入进去
+  replacer_->RecordAccess(frame_id, access_type);  // 因为不存在这个记录 所有要加入进去
+  // 这个地方是不是要设置为可以被驱逐有待考究 ？？？
+  // 回答 这个就是 本身不可以被驱逐的只有drop才可以被驱逐
   page_table_[page_id] = frame_id;  // 对应也需要加入 这个不需要锁的 因为肯定是不一样的
   frames_[frame_id]->pin_count_++;
+  frames_[frame_id]->page_id_ = page_id; // 记录page id;
   return T(page_id, frames_.at(frame_id), replacer_, bpm_latch_);
 }
 
@@ -199,14 +233,16 @@ auto BufferPoolManager::Checked(page_id_t page_id, AccessType access_type) -> st
   if (!info.has_value()) return std::nullopt;  // 现在所有的都是不可以被驱逐的 那么就返回把
 
   // 现在能释放这个frame id 要看看是不是要写回磁盘啊
+  // 一定要是有对应的page_id的
   frame_id_t free_frame_id = info.value();
-  page_id_t free_page_id = page_table_[free_frame_id];
+  BUSTUB_ASSERT(frames_[free_frame_id]->page_id_.has_value(), "");
+  page_id_t free_page_id = frames_[free_frame_id]->page_id_.value();
   // 需要进行磁盘写回
   if (frames_.at(free_frame_id)->is_dirty_) {
     auto promise = disk_scheduler_->CreatePromise();
     auto future = promise.get_future();  // 拿到future
-    // 添加到任务当中去
-    disk_scheduler_->Schedule({true, frames_.at(free_frame_id)->data_.data(), page_id, std::move(promise)});
+    // 添加到任务当中去 写回的页是free page id
+    disk_scheduler_->Schedule({true, frames_.at(free_frame_id)->data_.data(), free_page_id, std::move(promise)});
     future.get();
     // 写回磁盘完成了
   }
@@ -359,7 +395,22 @@ auto BufferPoolManager::ReadPage(page_id_t page_id, AccessType access_type) -> R
  * @param page_id The page ID of the page to be flushed.
  * @return `false` if the page could not be found in the page table, otherwise `true`.
  */
-auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool {
+  // UNIMPLEMENTED("TODO(P1): Add implementation.");
+
+  std::lock_guard<std::mutex> lock(*bpm_latch_);
+  auto it = page_table_.find(page_id);
+
+  if (it == page_table_.end()) return false;
+
+  auto frame = frames_.at(it->second);
+
+  if (frame->is_dirty_) {
+    handle_dirty_frame(it->second, page_id);
+  }
+  frame->is_dirty_ = false;  // 这个地方要进行 处理表示OK了
+  return true;
+}
 
 /**
  * @brief Flushes all page data that is in memory to disk.
@@ -371,7 +422,17 @@ auto BufferPoolManager::FlushPage(page_id_t page_id) -> bool { UNIMPLEMENTED("TO
  *
  * TODO(P1): Add implementation
  */
-void BufferPoolManager::FlushAllPages() { UNIMPLEMENTED("TODO(P1): Add implementation."); }
+void BufferPoolManager::FlushAllPages() {
+  // UNIMPLEMENTED("TODO(P1): Add implementation.");
+  std::lock_guard<std::mutex> lock(*bpm_latch_);
+  for (auto &i : page_table_) {
+    page_id_t page_id = i.first;
+    frame_id_t frame_id = i.second;
+
+    if (frames_.at(frame_id)->is_dirty_) handle_dirty_frame(frame_id, page_id);
+    frames_.at(frame_id)->is_dirty_ = false;
+  }
+}
 
 /**
  * @brief Retrieves the pin count of a page. If the page does not exist in memory, return `std::nullopt`.
@@ -398,7 +459,13 @@ void BufferPoolManager::FlushAllPages() { UNIMPLEMENTED("TODO(P1): Add implement
  * @return std::optional<size_t> The pin count if the page exists, otherwise `std::nullopt`.
  */
 auto BufferPoolManager::GetPinCount(page_id_t page_id) -> std::optional<size_t> {
-  UNIMPLEMENTED("TODO(P1): Add implementation.");
+  // UNIMPLEMENTED("TODO(P1): Add implementation.");
+
+  std::lock_guard<std::mutex> lock(*bpm_latch_);
+  auto it = page_table_.find(page_id);
+  if (it == page_table_.end()) return std::nullopt;
+  std::optional<size_t> result = frames_.at(it->second)->pin_count_.load(std::memory_order_relaxed);
+  return result;
 }
 
 template auto BufferPoolManager::handle_in_free_frame(page_id_t page_id,
