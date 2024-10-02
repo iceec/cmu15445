@@ -17,12 +17,10 @@ namespace bustub {
 
 LRUKReplacer::LRUKReplacer(size_t num_frames, size_t k) : replacer_size_(num_frames), k_(k) {}
 
-
 // 所有回合变成均摊logn  而不是一个 o(n)剩下o1
 auto LRUKReplacer::Evict() -> std::optional<frame_id_t> {
-
   // 全局加锁把
-  std::lock_guard<std::mutex> lock(latch_); 
+  std::lock_guard<std::mutex> lock(latch_);
   // 先遍历所有计算 最大frame_id
   std::optional<frame_id_t> ans;
 
@@ -30,7 +28,6 @@ auto LRUKReplacer::Evict() -> std::optional<frame_id_t> {
 
   // 本身不可以被驱逐 然后还是第一个 那么就不行了
   if (entry == node_tree_.end() || entry->first.is_evictable_ == false) return ans;
-
 
   frame_id_t evict_id = entry->second;
 
@@ -49,7 +46,7 @@ void LRUKReplacer::RecordAccess(frame_id_t frame_id, [[maybe_unused]] AccessType
   BUSTUB_ASSERT(static_cast<size_t>(frame_id) <= replacer_size_, "frame_id is too big");
 
   // 获取当前时间
-  std::lock_guard<std::mutex> lock(latch_); 
+  std::lock_guard<std::mutex> lock(latch_);
   auto it = node_store_.find(frame_id);
 
   if (it == node_store_.end())  // 之间没进来过的
@@ -105,11 +102,11 @@ void LRUKReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
   // 先保证 访问大小不能出错
   BUSTUB_ASSERT(static_cast<size_t>(frame_id) <= replacer_size_, "frame_id is too big");
 
-  auto it = node_store_.find(frame_id); //反正是不删除 在哪加都行
+  auto it = node_store_.find(frame_id);  //反正是不删除 在哪加都行
   // 这种情况ID也是无效的 考虑assert
   if (it == node_store_.end()) return;
   // 原来 no  现在 yes
-  std::lock_guard<std::mutex> lock(latch_); 
+  std::lock_guard<std::mutex> lock(latch_);
   if (set_evictable && it->second.is_evictable_ == false) {
     curr_size_++;
     it->second.is_evictable_ = true;
@@ -130,7 +127,7 @@ void LRUKReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
 void LRUKReplacer::Remove(frame_id_t frame_id) {
   // 先保证 访问大小不能出错
   BUSTUB_ASSERT(static_cast<size_t>(frame_id) <= replacer_size_, "frame_id is too big");
-  std::lock_guard<std::mutex> lock(latch_); 
+  std::lock_guard<std::mutex> lock(latch_);
   auto it = node_store_.find(frame_id);
 
   // 没找到或者本身情况是不可驱逐的

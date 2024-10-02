@@ -205,7 +205,7 @@ auto BufferPoolManager::handle_in_free_frame(page_id_t page_id, AccessType acces
   // 回答 这个就是 本身不可以被驱逐的只有drop才可以被驱逐
   page_table_[page_id] = frame_id;  // 对应也需要加入 这个不需要锁的 因为肯定是不一样的
   frames_[frame_id]->pin_count_++;
-  frames_[frame_id]->page_id_ = page_id; // 记录page id;
+  frames_[frame_id]->page_id_ = page_id;  // 记录page id;
   return T(page_id, frames_.at(frame_id), replacer_, bpm_latch_);
 }
 
@@ -468,11 +468,11 @@ auto BufferPoolManager::GetPinCount(page_id_t page_id) -> std::optional<size_t> 
   return result;
 }
 
-template auto BufferPoolManager::handle_in_free_frame(page_id_t page_id,
-                                                      AccessType access_type) -> std::optional<WritePageGuard>;
+template auto BufferPoolManager::handle_in_free_frame(page_id_t page_id, AccessType access_type)
+    -> std::optional<WritePageGuard>;
 
-template auto BufferPoolManager::handle_in_free_frame(page_id_t page_id,
-                                                      AccessType access_type) -> std::optional<ReadPageGuard>;
+template auto BufferPoolManager::handle_in_free_frame(page_id_t page_id, AccessType access_type)
+    -> std::optional<ReadPageGuard>;
 
 template auto BufferPoolManager::Checked(page_id_t page_id, AccessType access_type) -> std::optional<WritePageGuard>;
 

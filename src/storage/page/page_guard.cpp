@@ -78,7 +78,7 @@ ReadPageGuard::ReadPageGuard(ReadPageGuard &&that) noexcept {
 auto ReadPageGuard::operator=(ReadPageGuard &&that) noexcept -> ReadPageGuard & {
   if (&that == this) return *this;
 
-  this->Drop(); 
+  this->Drop();
   page_id_ = that.page_id_;
   frame_ = std::move(that.frame_);
   replacer_ = std::move(that.replacer_);
@@ -213,7 +213,7 @@ WritePageGuard::WritePageGuard(WritePageGuard &&that) noexcept {
  */
 auto WritePageGuard::operator=(WritePageGuard &&that) noexcept -> WritePageGuard & {
   if (&that == this) return *this;
-  // 先去drop 自己的 
+  // 先去drop 自己的
 
   this->Drop();  // 这里会获取latch 然后。。。
 
