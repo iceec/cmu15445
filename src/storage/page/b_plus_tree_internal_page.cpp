@@ -5,7 +5,7 @@
 //
 // Identification: src/page/b_plus_tree_internal_page.cpp
 //
-// Copyright (c) 2018, Carnegie Mellon University Database Group
+// Copyright (c) 2018-2024, Carnegie Mellon University Database Group
 //
 //===----------------------------------------------------------------------===//
 
@@ -31,15 +31,11 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::Init(int max_size) {
  // array_ = new MappingType[max_size + 1];  用vector不好吗??? 
 }
 /*
- * Helper method to get/set the key associated with input "index"(a.k.a
+ * Helper method to get/set the key associated with input "index" (a.k.a
  * array offset)
  */
 INDEX_TEMPLATE_ARGUMENTS
-auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::KeyAt(int index) const -> KeyType {
-  // replace with your own code
-  BUSTUB_ASSERT(index < GetMaxSize(), "KeyAt");
-  return array_[index].first;
-}
+auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::KeyAt(int index) const -> KeyType { return {}; }
 
 INDEX_TEMPLATE_ARGUMENTS
 void B_PLUS_TREE_INTERNAL_PAGE_TYPE::SetKeyAt(int index, const KeyType &key) {
@@ -48,7 +44,7 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::SetKeyAt(int index, const KeyType &key) {
 }
 
 /*
- * Helper method to get the value associated with input "index"(a.k.a array
+ * Helper method to get the value associated with input "index" (a.k.a array
  * offset)
  */
 INDEX_TEMPLATE_ARGUMENTS

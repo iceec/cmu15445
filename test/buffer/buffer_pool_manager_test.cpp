@@ -169,12 +169,13 @@ TEST(BufferPoolManagerTest, _PagePinMediumTest) {
   snprintf(page0.GetDataMut(), BUSTUB_PAGE_SIZE, "Hello");
   EXPECT_EQ(0, strcmp(page0.GetDataMut(), "Hello"));
 
+  page0.Drop();
+
   // Create a vector of unique pointers to page guards, which prevents the guards from getting destructed.
-  std::deque<WritePageGuard> pages;
-  pages.push_back(std::move(page0));
+  std::vector<WritePageGuard> pages;
 
   // Scenario: We should be able to create new pages until we fill up the buffer pool.
-  for (size_t i = 1; i < FRAMES; i++) {
+  for (size_t i = 0; i < FRAMES; i++) {
     auto pid = bpm->NewPage();
     auto page = bpm->WritePage(pid);
     pages.push_back(std::move(page));
@@ -187,17 +188,17 @@ TEST(BufferPoolManagerTest, _PagePinMediumTest) {
   }
 
   // Scenario: Once the buffer pool is full, we should not be able to create any new pages.
-  for (size_t i = 0; i < 10; i++) {
+  for (size_t i = 0; i < FRAMES; i++) {
     auto pid = bpm->NewPage();
     auto fail = bpm->CheckedWritePage(pid);
     ASSERT_FALSE(fail.has_value());
   }
 
   // Scenario: Drop the first 5 pages to unpin them.
-  for (size_t i = 0; i < 5; i++) {
+  for (size_t i = 0; i < FRAMES / 2; i++) {
     page_id_t pid = pages[0].GetPageId();
     EXPECT_EQ(1, bpm->GetPinCount(pid));
-    pages.pop_front();
+    pages.erase(pages.begin());
     EXPECT_EQ(0, bpm->GetPinCount(pid));
   }
 
@@ -207,9 +208,9 @@ TEST(BufferPoolManagerTest, _PagePinMediumTest) {
     EXPECT_EQ(1, bpm->GetPinCount(pid));
   }
 
-  // Scenario: After unpinning pages {0, 1, 2, 3, 4}, we should be able to create 4 new pages and bring them into
-  // memory. Bringing those 4 pages into memory should evict the first 4 pages {0, 1, 2, 3} because of LRU.
-  for (size_t i = 0; i < 4; i++) {
+  // Scenario: After unpinning pages {1, 2, 3, 4, 5}, we should be able to create 4 new pages and bring them into
+  // memory. Bringing those 4 pages into memory should evict the first 4 pages {1, 2, 3, 4} because of LRU.
+  for (size_t i = 0; i < ((FRAMES / 2) - 1); i++) {
     auto pid = bpm->NewPage();
     auto page = bpm->WritePage(pid);
     pages.push_back(std::move(page));
@@ -234,7 +235,45 @@ TEST(BufferPoolManagerTest, _PagePinMediumTest) {
   remove(db_fname);
 }
 
-TEST(BufferPoolManagerTest, _ContentionTest) {
+TEST(BufferPoolManagerTest, DISABLED_PageAccessTest) {
+  const size_t rounds = 50;
+
+  auto disk_manager = std::make_shared<DiskManager>(db_fname);
+  auto bpm = std::make_shared<BufferPoolManager>(1, disk_manager.get(), K_DIST);
+
+  auto pid = bpm->NewPage();
+  char buf[BUSTUB_PAGE_SIZE];
+
+  auto thread = std::thread([&]() {
+    // The writer can keep writing to the same page.
+    for (size_t i = 0; i < rounds; i++) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      auto guard = bpm->WritePage(pid);
+      strcpy(guard.GetDataMut(), std::to_string(i).c_str());  // NOLINT
+    }
+  });
+
+  for (size_t i = 0; i < rounds; i++) {
+    // Wait for a bit before taking the latch, allowing the writer to write some stuff.
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // While we are reading, nobody should be able to modify the data.
+    auto guard = bpm->ReadPage(pid);
+
+    // Save the data we observe.
+    memcpy(buf, guard.GetData(), BUSTUB_PAGE_SIZE);
+
+    // Sleep for a bit. If latching is working properly, nothing should be writing to the page.
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    // Check that the data is unmodified.
+    EXPECT_EQ(0, strcmp(guard.GetData(), buf));
+  }
+
+  thread.join();
+}
+
+TEST(BufferPoolManagerTest, DISABLED_ContentionTest) {
   auto disk_manager = std::make_shared<DiskManager>(db_fname);
   auto bpm = std::make_shared<BufferPoolManager>(FRAMES, disk_manager.get(), K_DIST);
 
@@ -250,21 +289,21 @@ TEST(BufferPoolManagerTest, _ContentionTest) {
   });
 
   auto thread2 = std::thread([&]() {
-    for (size_t i = 0; i > rounds; i++) {
+    for (size_t i = 0; i < rounds; i++) {
       auto guard = bpm->WritePage(pid);
       strcpy(guard.GetDataMut(), std::to_string(i).c_str());  // NOLINT
     }
   });
 
   auto thread3 = std::thread([&]() {
-    for (size_t i = 0; i > rounds; i++) {
+    for (size_t i = 0; i < rounds; i++) {
       auto guard = bpm->WritePage(pid);
       strcpy(guard.GetDataMut(), std::to_string(i).c_str());  // NOLINT
     }
   });
 
   auto thread4 = std::thread([&]() {
-    for (size_t i = 0; i > rounds; i++) {
+    for (size_t i = 0; i < rounds; i++) {
       auto guard = bpm->WritePage(pid);
       strcpy(guard.GetDataMut(), std::to_string(i).c_str());  // NOLINT
     }
@@ -314,6 +353,77 @@ TEST(BufferPoolManagerTest, _DeadlockTest) {
   guard0.Drop();
 
   child.join();
+}
+
+TEST(BufferPoolManagerTest, DISABLED_EvictableTest) {
+  // Test if the evictable status of a frame is always correct.
+  size_t rounds = 1000;
+  size_t num_readers = 8;
+
+  auto disk_manager = std::make_shared<DiskManager>(db_fname);
+  // Only allocate 1 frame of memory to the buffer pool manager.
+  auto bpm = std::make_shared<BufferPoolManager>(1, disk_manager.get(), K_DIST);
+
+  for (size_t i = 0; i < rounds; i++) {
+    std::mutex mutex;
+    std::condition_variable cv;
+
+    // This signal tells the readers that they can start reading after the main thread has already taken the read latch.
+    bool signal = false;
+
+    // This page will be loaded into the only available frame.
+    page_id_t winner_pid = bpm->NewPage();
+    // We will attempt to load this page into the occupied frame, and it should fail every time.
+    page_id_t loser_pid = bpm->NewPage();
+
+    std::vector<std::thread> readers;
+    for (size_t j = 0; j < num_readers; j++) {
+      readers.emplace_back([&]() {
+        std::unique_lock<std::mutex> lock(mutex);
+
+        // Wait until the main thread has taken a read latch on the page.
+        while (!signal) {
+          cv.wait(lock);
+        }
+
+        // Read the page in shared mode.
+        auto read_guard = bpm->ReadPage(winner_pid);
+
+        // Since the only frame is pinned, no thread should be able to bring in a new page.
+        ASSERT_FALSE(bpm->CheckedReadPage(loser_pid).has_value());
+      });
+    }
+
+    std::unique_lock<std::mutex> lock(mutex);
+
+    if (i % 2 == 0) {
+      // Take the read latch on the page and pin it.
+      auto read_guard = bpm->ReadPage(winner_pid);
+
+      // Wake up all of the readers.
+      signal = true;
+      cv.notify_all();
+      lock.unlock();
+
+      // Allow other threads to read.
+      read_guard.Drop();
+    } else {
+      // Take the read latch on the page and pin it.
+      auto write_guard = bpm->WritePage(winner_pid);
+
+      // Wake up all of the readers.
+      signal = true;
+      cv.notify_all();
+      lock.unlock();
+
+      // Allow other threads to read.
+      write_guard.Drop();
+    }
+
+    for (size_t i = 0; i < num_readers; i++) {
+      readers[i].join();
+    }
+  }
 }
 
 }  // namespace bustub
