@@ -90,9 +90,12 @@ class BPlusTreeLeafPage : public BPlusTreePage {
     return kstr;
   }
 
+  auto FindMatchValue(const KeyType &key, const KeyComparator &Com) const -> std::optional<ValueType>;
+
  private:
-  page_id_t next_page_id_;
+  page_id_t next_page_id_{INVALID_PAGE_ID};
   // Array members for page data.
+  // 每个槽一一对应自己的id
   KeyType key_array_[LEAF_PAGE_SLOT_CNT];
   ValueType rid_array_[LEAF_PAGE_SLOT_CNT];
   // (Fall 2024) Feel free to add more fields and helper functions below if needed

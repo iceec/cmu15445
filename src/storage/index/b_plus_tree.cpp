@@ -30,12 +30,41 @@ auto BPLUSTREE_TYPE::IsEmpty() const -> bool { return true; }
  * Return the only value that associated with input key
  * This method is used for point query
  * @return : true means key exists
+ * 过程当中只掌握着当前节点的读锁就OK了 ???考虑是不是会出现bug ??? 考虑deque存储所有路径读锁
  */
 INDEX_TEMPLATE_ARGUMENTS
 auto BPLUSTREE_TYPE::GetValue(const KeyType &key, std::vector<ValueType> *result) -> bool {
   // Declaration of context instance.
   Context ctx;
-  (void)ctx;
+  auto header_page_guard = bpm_->CheckedReadPage(header_page_id_);
+  auto header_page = header_page_guard->As<BPlusTreeHeaderPage>();
+
+  if (header_page->root_page_id_ == INVALID_PAGE_ID) {
+    return false;
+  }
+  ReadPageGuard page_guard;
+
+  page_id_t node_page_id = header_page->root_page_id_;
+
+  page_guard = bpm_->CheckedReadPage(node_page_id).value();
+
+  auto basic_type_node_page = page_guard.As<BPlusTreePage>();
+
+  while (!basic_type_node_page->IsLeafPage()) {
+    auto internal_type_node_page = page_guard.As<InternalPage>();
+    if ((node_page_id = internal_type_node_page->FindNextPageId(key,comparator_)) == INVALID_PAGE_ID) {  // Bai todo
+      return false;
+    }
+    page_guard = bpm_->CheckedReadPage(node_page_id).value();  // 对前者进行drop了
+    basic_type_node_page = page_guard.As<BPlusTreePage>();
+  }
+  // 出来表示是叶子结点了
+  auto leaf_type_page = page_guard.As<LeafPage>();
+  auto ans = leaf_type_page->FindMatchValue(key,comparator_);  // Bai to do
+  if (ans) {
+    result->push_back(ans.value());
+    return true;
+  }
   return false;
 }
 

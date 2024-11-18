@@ -104,12 +104,19 @@ class BPlusTreeInternalPage : public BPlusTreePage {
 
     return kstr;
   }
+  auto FindNextPageId(const KeyType &key, const KeyComparator &Com) const -> ValueType;
 
  private:
   // Array members for page data.
+  // key 从key[1]开始存 一直存到 key[n-1] 一共 n-1个key
+  // page_id 从page[0]开始存 一直存到page_id[n-1] 一共n个id
+  // 每个key 左右都要有左子树和右子树为 id-1 and id
+  // size always < max_size
   KeyType key_array_[INTERNAL_PAGE_SLOT_CNT];
   ValueType page_id_array_[INTERNAL_PAGE_SLOT_CNT];
   // (Fall 2024) Feel free to add more fields and helper functions below if needed
+  // 返回最后一个> key的pos(pos>=1)
+  auto UpperBound(const KeyType &key, const KeyComparator &Com) const -> size_t;
 };
 
 }  // namespace bustub

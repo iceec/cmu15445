@@ -95,6 +95,7 @@ class FrameHeader {
    * currently storing. This might allow you to skip searching for the corresponding (page ID, frame ID) pair somewhere
    * else in the buffer pool manager...
    */
+  page_id_t page_id_{INVALID_PAGE_ID};
 };
 
 /**
@@ -170,5 +171,12 @@ class BufferPoolManager {
    * stored inside of it. Additionally, you may also want to implement a helper function that returns either a shared
    * pointer to a `FrameHeader` that already has a page's data stored inside of it, or an index to said `FrameHeader`.
    */
+  auto GetMatchFrameId(page_id_t page_id) -> std::optional<frame_id_t>;
+
+  void ReadDiskPageToFrame(page_id_t page_id, frame_id_t frame_id);
+
+  void WriteBack(const std::shared_ptr<FrameHeader> &frame);
+
+  void ReadIn(page_id_t page_id, const std::shared_ptr<FrameHeader> &frame);
 };
 }  // namespace bustub
