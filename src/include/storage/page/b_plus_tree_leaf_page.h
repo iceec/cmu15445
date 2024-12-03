@@ -52,6 +52,7 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   // Delete all constructor / destructor to ensure memory safety
   BPlusTreeLeafPage() = delete;
   BPlusTreeLeafPage(const BPlusTreeLeafPage &other) = delete;
+  using LeafPage = BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>;
 
   /**
    * After creating a new leaf page from buffer pool, must call initialize
@@ -64,7 +65,7 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   auto GetNextPageId() const -> page_id_t;
   void SetNextPageId(page_id_t next_page_id);
   auto KeyAt(int index) const -> KeyType;
-
+  auto ValueAt(int index) const -> ValueType;
   /**
    * @brief For test only return a string representing all keys in
    * this leaf page formatted as "(key1,key2,key3,...)"
@@ -91,6 +92,23 @@ class BPlusTreeLeafPage : public BPlusTreePage {
   }
 
   auto FindMatchValue(const KeyType &key, const KeyComparator &Com) const -> std::optional<ValueType>;
+
+  auto Insert(const KeyType &key, const ValueType &value, const KeyComparator &Com) -> bool;
+
+  auto FullInsert(const KeyType &key, const ValueType &value, const KeyComparator &Com, BPlusTreeLeafPage *other_page,
+                  page_id_t other_page_id) -> std::optional<KeyType>;
+
+  auto IsFull() -> bool;
+
+  auto LowerBound(const KeyType &key, const KeyComparator &Com) const -> std::optional<int>;
+
+  void Remove(const KeyType &key, const KeyComparator &Com);
+
+  auto Distribute(BPlusTreeLeafPage *other_leaf_page, bool i_am_left) -> const KeyType;
+  // 固定的 左边 merge 右边
+  void Merge(BPlusTreeLeafPage *other_leaf_page);
+
+  auto Empty() -> bool { return GetSize() == 0; }
 
  private:
   page_id_t next_page_id_{INVALID_PAGE_ID};

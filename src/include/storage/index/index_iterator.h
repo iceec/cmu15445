@@ -27,18 +27,26 @@ class IndexIterator {
   IndexIterator();
   ~IndexIterator();  // NOLINT
 
+  IndexIterator(BufferPoolManager *bpm, page_id_t leaf_page_id, int pos);
+  using LeafPage = BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>;
+
   auto IsEnd() -> bool;
 
   auto operator*() -> std::pair<const KeyType &, const ValueType &>;
 
   auto operator++() -> IndexIterator &;
 
-  auto operator==(const IndexIterator &itr) const -> bool { throw std::runtime_error("unimplemented"); }
+  auto operator==(const IndexIterator &itr) const -> bool {
+    return bpm_ == itr.bpm_ && leaf_page_id_ == itr.leaf_page_id_ && pos_ == itr.pos_;
+  }
 
-  auto operator!=(const IndexIterator &itr) const -> bool { throw std::runtime_error("unimplemented"); }
+  auto operator!=(const IndexIterator &itr) const -> bool { return !(*this == itr); }
 
  private:
   // add your own private member variables here
+  BufferPoolManager *bpm_{nullptr};
+  page_id_t leaf_page_id_{INVALID_PAGE_ID};
+  int pos_{-1};
 };
 
 }  // namespace bustub

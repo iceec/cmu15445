@@ -22,6 +22,11 @@ namespace bustub {
 #define INTERNAL_PAGE_SLOT_CNT \
   ((BUSTUB_PAGE_SIZE - INTERNAL_PAGE_HEADER_SIZE) / ((int)(sizeof(KeyType) + sizeof(ValueType))))  // NOLINT
 
+enum class Edge {
+  MostLeft = 0,
+  MostRight,
+};
+
 /**
  * Store `n` indexed keys and `n + 1` child pointers (page_id) within internal page.
  * Pointer PAGE_ID(i) points to a subtree in which all keys K satisfy:
@@ -48,6 +53,8 @@ class BPlusTreeInternalPage : public BPlusTreePage {
   BPlusTreeInternalPage() = delete;
   BPlusTreeInternalPage(const BPlusTreeInternalPage &other) = delete;
 
+  using Upinfo = std::pair<KeyType, ValueType>;
+
   /**
    * Writes the necessary header information to a newly created page, must be called after
    * the creation of a new page to make a valid `BPlusTreeInternalPage`
@@ -60,6 +67,8 @@ class BPlusTreeInternalPage : public BPlusTreePage {
    * @return Key at index
    */
   auto KeyAt(int index) const -> KeyType;
+
+  auto KeyAt(const KeyType &key, const KeyComparator &Com) -> int;
 
   /**
    * @param index The index of the key to set. Index must be non-zero.
@@ -106,6 +115,31 @@ class BPlusTreeInternalPage : public BPlusTreePage {
   }
   auto FindNextPageId(const KeyType &key, const KeyComparator &Com) const -> ValueType;
 
+  auto Insert(const Upinfo &value, const KeyComparator &Com) -> bool;
+
+  auto FullInsert(const Upinfo &value, const KeyComparator &Com, BPlusTreeInternalPage *other_page) -> KeyType;
+
+  auto IsFull() const -> bool;
+
+  auto FirstItem(const ValueType &left_value, const Upinfo &value) -> void;
+
+  auto FindNextPageId(Edge type) const -> ValueType;
+
+  void Remove(const KeyType &key, const ValueType &value, const KeyComparator &Com);
+
+  // 返回最后一个> key的pos(pos>=1)
+  auto UpperBound(const KeyType &key, const KeyComparator &Com) const -> int;
+
+  void Replace(const KeyType &key, const KeyType &replace_key, const KeyComparator &Com);
+
+  auto Distribute(BPlusTreeInternalPage *other_internal_page, bool i_am_left,
+                  const KeyType &parent_key) -> const KeyType;
+
+  // zuo mer you
+  void Merge(BPlusTreeInternalPage *other_internal_page, const KeyType &parent_key);
+
+  auto Empty() -> bool { return GetSize() == 1; }
+
  private:
   // Array members for page data.
   // key 从key[1]开始存 一直存到 key[n-1] 一共 n-1个key
@@ -115,8 +149,6 @@ class BPlusTreeInternalPage : public BPlusTreePage {
   KeyType key_array_[INTERNAL_PAGE_SLOT_CNT];
   ValueType page_id_array_[INTERNAL_PAGE_SLOT_CNT];
   // (Fall 2024) Feel free to add more fields and helper functions below if needed
-  // 返回最后一个> key的pos(pos>=1)
-  auto UpperBound(const KeyType &key, const KeyComparator &Com) const -> size_t;
 };
 
 }  // namespace bustub

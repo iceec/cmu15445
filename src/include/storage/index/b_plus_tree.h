@@ -64,6 +64,13 @@ class BPlusTree {
   using InternalPage = BPlusTreeInternalPage<KeyType, page_id_t, KeyComparator>;
   using LeafPage = BPlusTreeLeafPage<KeyType, ValueType, KeyComparator>;
 
+  struct MergeOrDistributionInfo {
+    WritePageGuard page_guard_;
+    const bool left_;  // 相对位置是在左边吗
+    const bool merge_;
+    const KeyType parent_key_;
+  };
+
  public:
   explicit BPlusTree(std::string name, page_id_t header_page_id, BufferPoolManager *buffer_pool_manager,
                      const KeyComparator &comparator, int leaf_max_size = LEAF_PAGE_SLOT_CNT,
@@ -132,6 +139,17 @@ class BPlusTree {
   void ToGraph(page_id_t page_id, const BPlusTreePage *page, std::ofstream &out);
 
   void PrintTree(page_id_t page_id, const BPlusTreePage *page);
+  // 给 iterator去使用的
+  auto Find(Edge type) -> INDEXITERATOR_TYPE;
+  // 寻找一个key对应的叶子节点用write填充
+  void FindKeyWithWriteGuard(const KeyType &key, Context &ctx, page_id_t root_page_id);
+
+  void FindKeyWithReadGuard(const KeyType &key, Context &ctx, page_id_t root_page_id);
+
+  void RemoveFromInternal(Context &ctx, const KeyType &key, const page_id_t page_id, const page_id_t child_page_id);
+
+  auto MergeOrRedistribution(InternalPage *parent_internal_page, const KeyType &key, const page_id_t page_id,
+                             int page_size) -> MergeOrDistributionInfo;
 
   /**
    * @brief Convert A B+ tree into a Printable B+ tree

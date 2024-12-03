@@ -443,11 +443,11 @@ void MixTest2Call() {
   }
 }
 
-TEST(BPlusTreeConcurrentTest, DISABLED_InsertTest1) {  // NOLINT
+TEST(BPlusTreeConcurrentTest, InsertTest1) {  // NOLINT
   InsertTest1Call();
 }
 
-TEST(BPlusTreeConcurrentTest, DISABLED_InsertTest2) {  // NOLINT
+TEST(BPlusTreeConcurrentTest, InsertTest2) {  // NOLINT
   InsertTest2Call();
 }
 
