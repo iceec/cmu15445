@@ -144,6 +144,10 @@ class BPlusTree {
   // 寻找一个key对应的叶子节点用write填充
   void FindKeyWithWriteGuard(const KeyType &key, Context &ctx, page_id_t root_page_id);
 
+  void SafePopForInsert(Context &ctx);
+
+  void SafePopForRemove(Context &ctx);
+
   void FindKeyWithReadGuard(const KeyType &key, Context &ctx, page_id_t root_page_id);
 
   void RemoveFromInternal(Context &ctx, const KeyType &key, const page_id_t page_id, const page_id_t child_page_id);
@@ -166,7 +170,7 @@ class BPlusTree {
   std::vector<std::string> log;  // NOLINT
   int leaf_max_size_;
   int internal_max_size_;
-  page_id_t header_page_id_;
+  page_id_t header_page_id_;  // header page的作用就是帮助你分裂之前的虚拟节点的
 };
 
 /**

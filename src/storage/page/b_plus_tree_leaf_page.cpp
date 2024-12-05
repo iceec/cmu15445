@@ -174,18 +174,19 @@ auto B_PLUS_TREE_LEAF_PAGE_TYPE::LowerBound(const KeyType &key, const KeyCompara
 }
 
 INDEX_TEMPLATE_ARGUMENTS
-void B_PLUS_TREE_LEAF_PAGE_TYPE::Remove(const KeyType &key, const KeyComparator &Com) {
+bool B_PLUS_TREE_LEAF_PAGE_TYPE::Remove(const KeyType &key, const KeyComparator &Com) {
   auto option = LowerBound(key, Com);  // 返回>= key的第一个元素
   if (!option) {
-    return;
+    return false;
   }
   auto pos = option.value();
   if (Com(key_array_[pos], key) != 0) {  // 没找到= 的
-    return;
+    return false;
   }
   std::copy(key_array_ + pos + 1, key_array_ + GetSize(), key_array_ + pos);
   std::copy(rid_array_ + pos + 1, rid_array_ + GetSize(), rid_array_ + pos);
   ChangeSizeBy(-1);
+  return true;
 }
 
 INDEX_TEMPLATE_ARGUMENTS

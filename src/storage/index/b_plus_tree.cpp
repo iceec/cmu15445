@@ -31,7 +31,7 @@ auto BPLUSTREE_TYPE::IsEmpty() const -> bool {
 /*****************************************************************************
  * SEARCH
  *****************************************************************************/
-
+// need to do 不同版本
 INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::FindKeyWithWriteGuard(const KeyType &key, Context &ctx, page_id_t root_page_id) {
   BUSTUB_ASSERT(root_page_id != INVALID_PAGE_ID, "write find key");
@@ -39,13 +39,42 @@ void BPLUSTREE_TYPE::FindKeyWithWriteGuard(const KeyType &key, Context &ctx, pag
   auto &que = ctx.write_set_;
   que.push_back(bpm_->CheckedWritePage(root_page_id).value());
   auto basic_page = que.back().As<BPlusTreePage>();
-
+  /**
+   * 考虑插入的情况 自己不会影响上层 那么根节点什么时候插入不影响上层就是size < max_size
+   * 先将所有的东西都装进来然后从底到顶检查
+   */
   while (!basic_page->IsLeafPage()) {
     auto internal_page = que.back().As<InternalPage>();
     page_id_t next_page_id = internal_page->FindNextPageId(key, comparator_);
     que.push_back(bpm_->CheckedWritePage(next_page_id).value());
     basic_page = que.back().As<BPlusTreePage>();
   }
+}
+
+INDEX_TEMPLATE_ARGUMENTS
+void BPLUSTREE_TYPE::SafePopForInsert(Context &ctx) {
+  auto &que = ctx.write_set_;
+  // pos = 0 是 header page 所以 不能管
+  auto pos = que.size() - 1;
+  BUSTUB_ASSERT(pos > 0, "baiyu 10");
+  while (pos > 0) {
+    auto basic_page = que[pos].As<BPlusTreePage>();
+    if (basic_page->SafeInsert()) {
+      break;
+    }
+    --pos;
+  }
+  // pos 所处的位置是安全的 或者都不安全 pos = 0  不会影响上面 那么 [0 pos - 1]都释放了把
+  for (size_t i = 0; i + 1 <= pos; ++i) {
+    que.pop_front();
+  }
+  BUSTUB_ASSERT(que.size() >= 1, "baiyu 11");
+  // 表明 连根节点都不是安全的
+  if (pos == 0) {
+    ctx.header_page_ = std::move(que.front());
+    que.pop_front();
+  }
+  return;
 }
 
 INDEX_TEMPLATE_ARGUMENTS
@@ -106,8 +135,8 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
   // Declaration of context instance.
   Context ctx;
   auto &write_que = ctx.write_set_;
-  ctx.header_page_ = bpm_->CheckedWritePage(header_page_id_);  // 获取写锁
-  auto header_page = ctx.header_page_->AsMut<BPlusTreeHeaderPage>();
+  write_que.push_back(bpm_->CheckedWritePage(header_page_id_).value());
+  auto header_page = write_que.back().AsMut<BPlusTreeHeaderPage>();
   // 本身树空 root_page_Id == invaild
   if (header_page->root_page_id_ == INVALID_PAGE_ID) {
     auto root_page_id = bpm_->NewPage();
@@ -120,8 +149,10 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
     return true;
   }
 
-  // 找寻叶子节点
+  // 找寻叶子节点 刨除了安全节点 假如根节点是不安全的那么会
   FindKeyWithWriteGuard(key, ctx, header_page->root_page_id_);
+  SafePopForInsert(ctx);
+
   // 向叶子节点插入key value
   auto leaf_type_page = write_que.back().AsMut<LeafPage>();
   // 叶子节点没满
@@ -138,15 +169,12 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
     new_leaf_page->Init(leaf_max_size_);
     // result 返回一个optional  key 假如有相同值得话 返回std::nullopt
     auto result = leaf_type_page->FullInsert(key, value, comparator_, new_leaf_page, new_leaf_page_id);
-    
 
     if (!result) {
       return false;
     }
     up_value.first = result.value();
     up_value.second = new_leaf_page_id;
-  
-    
   }
 
   // 需要向上进行分裂
@@ -174,9 +202,10 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
 
     write_que.pop_back();
   }
-
-  {
+  // 表明需要改header
+  if (ctx.header_page_) {
     // 就连根节点都已经分裂了 那么新搞一个中间节点把root_page_id放左 result_page_id 放右 对应key 为 result key
+    header_page = ctx.header_page_->AsMut<BPlusTreeHeaderPage>();
     auto new_root_page_id = bpm_->NewPage();
     auto new_root_write_page_guard = bpm_->CheckedWritePage(new_root_page_id).value();
     auto internal_type_page = new_root_write_page_guard.AsMut<InternalPage>();
@@ -191,6 +220,47 @@ auto BPLUSTREE_TYPE::Insert(const KeyType &key, const ValueType &value) -> bool 
 /*****************************************************************************
  * REMOVE
  *****************************************************************************/
+
+INDEX_TEMPLATE_ARGUMENTS
+void BPLUSTREE_TYPE::SafePopForRemove(Context &ctx) {
+  auto &que = ctx.write_set_;
+  // pos = 0 是 header page 所以 不能管
+  auto pos = que.size() - 1;
+  BUSTUB_ASSERT(pos > 0, "baiyu 11");
+  // pos = 0 是 header
+  // pos = 1 是根节点 根节点的safe为非empty 其他界节点的safe是size > getminsize
+  while (pos > 1) {
+    auto basic_page = que[pos].As<BPlusTreePage>();
+    if (basic_page->SafeRemove()) {
+      break;
+    }
+    --pos;
+  }
+  // pos = 1 表明根节点的下面都不安全是判断size > 1
+  if (pos == 1) {
+    auto basic_page = que[pos].As<BPlusTreePage>();
+    if (basic_page->IsLeafPage() && basic_page->GetSize() <= 1) {
+      BUSTUB_ASSERT(basic_page->GetSize() == 1, "baiyu 16");
+      --pos;
+    } else if (!basic_page->IsLeafPage() && basic_page->GetSize() <= 2) {
+      BUSTUB_ASSERT(basic_page->GetSize() == 2, "baiyu 17");
+      --pos;
+    }
+  }
+
+  // pos 所处的位置是安全的 或者都不安全 pos = 0  不会影响上面 那么 [0 pos - 1]都释放了把
+  for (size_t i = 0; i + 1 <= pos; ++i) {
+    que.pop_front();
+  }
+  BUSTUB_ASSERT(que.size() >= 1, "baiyu 11");
+  // 表明 连根节点都不是安全的
+  if (pos == 0) {
+    ctx.header_page_ = std::move(que.front());
+    que.pop_front();
+  }
+  return;
+}
+
 /*
  * Delete key & value pair associated with input key
  * If current tree is empty, return immediately.
@@ -203,31 +273,37 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key) {
   // Declaration of context instance.
   Context ctx;
   // 判断根节点是不是空的
-  ctx.header_page_ = bpm_->CheckedWritePage(header_page_id_).value();
-  auto header_page = ctx.header_page_->AsMut<BPlusTreeHeaderPage>();
+  ctx.write_set_.push_back(bpm_->CheckedWritePage(header_page_id_).value());
+  auto header_page = ctx.write_set_.back().AsMut<BPlusTreeHeaderPage>();
   if (header_page->root_page_id_ == INVALID_PAGE_ID) {
     return;
   }
-
   // find 最后的根节点 全程write back是叶子节点
   FindKeyWithWriteGuard(key, ctx, header_page->root_page_id_);
+  SafePopForRemove(ctx);
   // 先将元素进行删除
   auto &write_que = ctx.write_set_;
   auto leaf_page = write_que.back().AsMut<LeafPage>();
   auto leaf_page_id = write_que.back().GetPageId();
-  leaf_page->Remove(key, comparator_);  // remove bai to do
+  if (!leaf_page->Remove(key, comparator_)) {
+    return;  // 注意这个地方很可能remove失败的 因为是并行的
+  }
 
   /**
    * 叶子节点是根节点 那么删除后 两种情况
    *    1：还有元素就保留
    *    2：没有元素要删除这一页然后header_page删除就行了
    */
-  if (leaf_page_id == header_page->root_page_id_) {
-    // remove 之后没元素了
-    if (leaf_page->Empty()) {
+  // remove成功了 并且是根节点
+  if (write_que.size() == 1) {
+    if (ctx.header_page_) {
+      BUSTUB_ASSERT(leaf_page->Empty(), "baiyu 18");
+      auto header_page = ctx.header_page_->AsMut<BPlusTreeHeaderPage>();
       write_que.pop_back();  // 必须先释放啊 不然不能删除
       BUSTUB_ASSERT(bpm_->DeletePage(header_page->root_page_id_), "baiyu 9");
       header_page->root_page_id_ = INVALID_PAGE_ID;
+    } else {
+      BUSTUB_ASSERT(!leaf_page->Empty(), "baiyu 19");
     }
     return;
   }
@@ -235,9 +311,11 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key) {
    * 叶子节点非根节点 删除元素后判断是否需要重组 不需要就返回 删除的话
    *  肯定有左边或者右边的或者都有 把page_id那上去 判断可不可以合并或者分配 返回page_id and K
    */
+  // 这句话应该永远不会执行 考虑删去
   if (!leaf_page->Few()) {
     return;
   }
+  BUSTUB_ASSERT(write_que.size() >= 2, "baiyu12");
   auto parent_internal_page = write_que.at(write_que.size() - 2).AsMut<InternalPage>();
 
   auto info = MergeOrRedistribution(parent_internal_page, key, leaf_page_id, leaf_page->GetSize());
@@ -258,7 +336,7 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key) {
   if (info.left_) {
     other_leaf_page->Merge(leaf_page);
     child_page_id = other_leaf_page_id;
-    write_que.back().Drop();
+    write_que.back().Drop();  // 可以drop因为我拿着parent呢
   } else {
     leaf_page->Merge(other_leaf_page);
     delete_page_id = other_leaf_page_id;
@@ -266,7 +344,7 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key) {
   }
   BUSTUB_ASSERT(bpm_->DeletePage(delete_page_id), "delet page_id");
   auto &delete_key = info.parent_key_;
-  // 这个时候 根节点已经匹配好了 可以释放 给index去遍历了
+  // 这个时候 根节点已经匹配好了 可以释放 给index去遍历了 other page 也可以释放了
   write_que.pop_back();
   return RemoveFromInternal(ctx, delete_key, delete_page_id, child_page_id);  // Bai to do
 }
@@ -274,30 +352,34 @@ void BPLUSTREE_TYPE::Remove(const KeyType &key) {
 INDEX_TEMPLATE_ARGUMENTS
 void BPLUSTREE_TYPE::RemoveFromInternal(Context &ctx, const KeyType &key, const page_id_t page_id,
                                         const page_id_t down_page_id) {
-  BUSTUB_ASSERT(!ctx.write_set_.empty(), "baiyu 5");
   auto internal_page = ctx.write_set_.back().AsMut<InternalPage>();
   auto internal_page_id = ctx.write_set_.back().GetPageId();
+  // 假如都删除第一个叶子节点 那么不可能到这还有两个把
   internal_page->Remove(key, page_id, comparator_);  // 考虑不需要page id 的安全考虑
 
-  // 最后一个是根节点了
+  // 最后一个节点表明这个节点要是安全的
+  // 除非有header 到这个里面删除一定成功那么要是
   if (ctx.write_set_.size() == 1) {
-    if (internal_page->Empty()) {
+    if (ctx.header_page_) {
+      BUSTUB_ASSERT(internal_page->Empty(), "baiyu 21");
       auto header_page = ctx.header_page_.value().AsMut<BPlusTreeHeaderPage>();
       BUSTUB_ASSERT(ctx.write_set_.back().GetPageId() == header_page->root_page_id_, "baiyu 7");
       ctx.write_set_.pop_back();
       bpm_->DeletePage(header_page->root_page_id_);
       header_page->root_page_id_ = down_page_id;
     }
+    BUSTUB_ASSERT(!internal_page->Empty(), "baiyu 22");
     return;
   }
   /**
    * 上面还有节点呢
    */
+  // 这个应该也不会执行的
   if (!internal_page->Few()) {
     return;
   }
-
   auto &write_que = ctx.write_set_;
+  BUSTUB_ASSERT(write_que.size() >= 2, "baiyu12");
   auto parent_internal_page = write_que.at(write_que.size() - 2).AsMut<InternalPage>();
 
   MergeOrDistributionInfo info =

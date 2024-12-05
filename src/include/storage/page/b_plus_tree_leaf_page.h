@@ -102,7 +102,7 @@ class BPlusTreeLeafPage : public BPlusTreePage {
 
   auto LowerBound(const KeyType &key, const KeyComparator &Com) const -> std::optional<int>;
 
-  void Remove(const KeyType &key, const KeyComparator &Com);
+  bool Remove(const KeyType &key, const KeyComparator &Com);
 
   auto Distribute(BPlusTreeLeafPage *other_leaf_page, bool i_am_left) -> const KeyType;
   // 固定的 左边 merge 右边

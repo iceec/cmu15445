@@ -113,7 +113,6 @@ TEST(BPlusTreeTests, SequentialEdgeMixTest) {  // NOLINT
       auto res = TreeValuesMatch<GenericKey<8>, RID, GenericComparator<8>>(tree, inserted, deleted);
       ASSERT_TRUE(res);
     }
-
     index_key.SetFromInteger(1);
     tree.Remove(index_key);
     deleted.push_back(1);

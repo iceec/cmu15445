@@ -58,6 +58,9 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::ValueAt(int index) const -> ValueType {
 
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::FindNextPageId(const KeyType &key, const KeyComparator &Com) const -> ValueType {
+  if (GetSize() <= 1) {
+    std::cout << "here" << std::endl;
+  }
   BUSTUB_ASSERT(GetSize() > 1, "find next page id");  // 必须要有key的
   size_t pos = UpperBound(key, Com);                  // pos 一定>=1 找到> key的
   return page_id_array_[pos - 1];
@@ -74,6 +77,7 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::FindNextPageId(Edge type) const -> ValueTyp
 
 INDEX_TEMPLATE_ARGUMENTS
 auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::UpperBound(const KeyType &key, const KeyComparator &Com) const -> int {
+  BUSTUB_ASSERT(GetSize() >= 2, "baiyu 19");
   int l = 1, r = GetSize() - 1;
   int ans = r + 1;
 
@@ -222,8 +226,9 @@ auto B_PLUS_TREE_INTERNAL_PAGE_TYPE::Distribute(BPlusTreeInternalPage *other_int
   std::copy(key_array_ + 1, key_array_ + GetSize(), key_array_);
   std::copy(page_id_array_ + 1, page_id_array_ + GetSize(), page_id_array_);
 
-  other_internal_page->key_array_[GetSize()] = parent_key;
-  other_internal_page->page_id_array_[GetSize()] = pre_id;
+  other_internal_page->key_array_[other_internal_page->GetSize()] = parent_key;
+  other_internal_page->page_id_array_[other_internal_page->GetSize()] = pre_id;
+  ChangeSizeBy(-1);
   other_internal_page->ChangeSizeBy(1);
   return result;
 }
@@ -240,7 +245,7 @@ void B_PLUS_TREE_INTERNAL_PAGE_TYPE::Merge(BPlusTreeInternalPage *other_internal
             page_id_array_ + GetSize());
 
   ChangeSizeBy(other_size);
-  other_internal_page->SetSize(0);
+  other_internal_page->SetSize(1);
 }
 
 // valuetype for internalNode should be page id_t
